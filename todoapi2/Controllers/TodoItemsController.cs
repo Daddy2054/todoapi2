@@ -1,111 +1,128 @@
-﻿using Microsoft.AspNetCore.Mvc;
-using TodoAPI.Interfaces;
-using TodoAPI.Models;
+﻿using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
+using TodoApi.Models;
 
-namespace TodoAPI.Controllers
+namespace TodoApi.Controllers
 {
-    #region snippetErrorCode
-    public enum ErrorCode
-    {
-        TodoItemNameAndNotesRequired,
-        TodoItemIDInUse,
-        RecordNotFound,
-        CouldNotCreateItem,
-        CouldNotUpdateItem,
-        CouldNotDeleteItem
-    }
-    #endregion
-
-    #region snippetDI
-    [ApiController]
     [Route("api/[controller]")]
+    [ApiController]
     public class TodoItemsController : ControllerBase
     {
-        private readonly ITodoRepository _todoRepository;
+        private readonly TodoContext _context;
 
-        public TodoItemsController(ITodoRepository todoRepository)
+        public TodoItemsController(TodoContext context)
         {
-            _todoRepository = todoRepository;
+            _context = context;
         }
-        #endregion
 
-        #region snippet
+        // GET: api/TodoItems
         [HttpGet]
-        public IActionResult List()
+        public async Task<ActionResult<IEnumerable<TodoItemDTO>>> GetTodoItems()
         {
-            return Ok(_todoRepository.All);
+            return await _context.TodoItems
+                .Select(x => ItemToDTO(x))
+                .ToListAsync();
         }
-        #endregion
 
-        #region snippetCreate
+        // GET: api/TodoItems/5
+        [HttpGet("{id}")]
+        public async Task<ActionResult<TodoItemDTO>> GetTodoItem(long id)
+        {
+            var todoItem = await _context.TodoItems.FindAsync(id);
+
+            if (todoItem == null)
+            {
+                return NotFound();
+            }
+
+            return ItemToDTO(todoItem);
+        }
+
+        // PUT: api/TodoItems/5
+        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
+        [HttpPut("{id}")]
+        public async Task<IActionResult> PutTodoItem(long id, TodoItemDTO todoDTO)
+        {
+            if (id != todoDTO.Id)
+            {
+                return BadRequest();
+            }
+
+            var todoItem = await _context.TodoItems.FindAsync(id);
+            if (todoItem == null)
+            {
+                return NotFound();
+            }
+
+            todoItem.Name = todoDTO.Name;
+            todoItem.IsComplete = todoDTO.IsComplete;
+
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException) when (!TodoItemExists(id))
+            {
+                return NotFound();
+            }
+
+            return NoContent();
+        }
+
+        // POST: api/TodoItems
+        // To protect from overposting attacks, see https://go.microsoft.com/fwlink/?linkid=2123754
         [HttpPost]
-        public IActionResult Create([FromBody]TodoItem item)
+        public async Task<ActionResult<TodoItemDTO>> PostTodoItem(TodoItemDTO todoDTO)
         {
-            try
+            var todoItem = new TodoItem
             {
-                if (item == null || !ModelState.IsValid)
-                {
-                    return BadRequest(ErrorCode.TodoItemNameAndNotesRequired.ToString());
-                }
-                bool itemExists = _todoRepository.DoesItemExist(item.ID);
-                if (itemExists)
-                {
-                    return StatusCode(StatusCodes.Status409Conflict, ErrorCode.TodoItemIDInUse.ToString());
-                }
-                _todoRepository.Insert(item);
-            }
-            catch (Exception)
-            {
-                return BadRequest(ErrorCode.CouldNotCreateItem.ToString());
-            }
-            return Ok(item);
-        }
-        #endregion
+                Name = todoDTO.Name,
+                IsComplete = todoDTO.IsComplete
+            };
 
-        #region snippetEdit
-        [HttpPut]
-        public IActionResult Edit([FromBody] TodoItem item)
-        {
-            try
-            {
-                if (item == null || !ModelState.IsValid)
-                {
-                    return BadRequest(ErrorCode.TodoItemNameAndNotesRequired.ToString());
-                }
-                var existingItem = _todoRepository.Find(item.ID);
-                if (existingItem == null)
-                {
-                    return NotFound(ErrorCode.RecordNotFound.ToString());
-                }
-                _todoRepository.Update(item);
-            }
-            catch (Exception)
-            {
-                return BadRequest(ErrorCode.CouldNotUpdateItem.ToString());
-            }
-            return NoContent();
+            _context.TodoItems.Add(todoItem);
+            await _context.SaveChangesAsync();
+
+            return CreatedAtAction(
+                nameof(GetTodoItem),
+                new { id = todoItem.Id },
+                ItemToDTO(todoItem));
         }
-        #endregion
-        
-        #region snippetDelete
+
+        // DELETE: api/TodoItems/5
         [HttpDelete("{id}")]
-        public IActionResult Delete(string id)
+        public async Task<IActionResult> DeleteTodoItem(long id)
         {
-            try
+            var todoItem = await _context.TodoItems.FindAsync(id);
+            if (todoItem == null)
             {
-                var item = _todoRepository.Find(id);
-                if (item == null)
-                {
-                    return NotFound(ErrorCode.RecordNotFound.ToString());
-                }
-                _todoRepository.Delete(id);
+                return NotFound();
             }
-            catch (Exception)
-            {
-                return BadRequest(ErrorCode.CouldNotDeleteItem.ToString());
-            }
+
+            _context.TodoItems.Remove(todoItem);
+            await _context.SaveChangesAsync();
+
             return NoContent();
         }
-        #endregion
+
+        private bool TodoItemExists(long id)
+        {
+            return _context.TodoItems.Any(e => e.Id == id);
+        }
+
+
+        private static TodoItemDTO ItemToDTO(TodoItem todoItem) =>
+           new TodoItemDTO
+           {
+               Id = todoItem.Id,
+               Name = todoItem.Name,
+               IsComplete = todoItem.IsComplete
+           };
     }
+
 }
